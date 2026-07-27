@@ -164,6 +164,44 @@ def _chat(base_url: str, api_key: str, model: str, system: str, user: str, proto
     return _chat_responses(base_url, api_key, model, system, user)
 
 
+def _balance_braces(s: str) -> str:
+    """截取第一个完整平衡的 {...} 块，容忍模型在花括号外多输出内容。"""
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start != -1:
+                return s[start : i + 1]
+    return s[start:] if start != -1 else s
+
+
+def _repair_json(s: str) -> str:
+    """尽力修复常见模型 JSON 瑕疵：中文引号、trailing comma、未转义换行。"""
+    # 中文引号 → 英文引号（在 JSON 结构里出现的中文引号基本是模型误用）
+    s = s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    # trailing comma：, } 或 , ] → } / ]
+    s = re.sub(r",(\s*[}\]])", r"\1", s)
+    return s
+
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -172,7 +210,14 @@ def _extract_json(text: str) -> dict:
     s, e = text.find("{"), text.rfind("}")
     if s == -1 or e <= s:
         raise ValueError("no json")
-    return json.loads(text[s : e + 1])
+    candidate = text[s : e + 1]
+    # 逐级容错：原文 → 修复 → 平衡花括号后修复
+    for attempt in (candidate, _repair_json(candidate), _repair_json(_balance_braces(candidate))):
+        try:
+            return json.loads(attempt)
+        except Exception:
+            continue
+    raise ValueError("无法解析模型返回的 JSON")
 
 
 def _chat_json(base_url, api_key, model, system, user, protocol="responses") -> dict:
@@ -235,10 +280,8 @@ def run_pipeline(product, base_url, api_key, model, provider, search_key, log, p
     q = _chat_json(
         base_url, api_key, model, "你是搜索词扩展助手。",
         f"用户想调研产品「{product}」。先补全/纠正为官方产品名，再据此生成 3 组用于搜索引擎的查询词。\n"
-        "要求：每个查询以官方产品名开头，后跟 1~2 个检索词；不要把维度名（如\"竞品对比\"\"用户口碑\"本身）当作查询词。\n"
-        "示例（产品是 Notion 时）：official=\"Notion 官网 功能\"，reviews=\"Notion 怎么样 评价\"，competitors=\"Notion 平替 对比\"。\n"
-        "严格 JSON 返回："
-        '{"official":"<官方名称+官网/功能>","reviews":"<官方名称+评价/怎么样>","competitors":"<官方名称+平替/vs/对比>"}，每个查询≤20字。',
+        "要求：每个查询以官方产品名开头，后跟 1~2 个检索词；不要把维度名本身当作查询词。每个查询不超过 20 字。\n"
+        "返回 JSON，三个键：official（官方名称+官网或功能）、reviews（官方名称+评价或怎么样）、competitors（官方名称+平替或对比）。",
         protocol,
     )
     queries = {k: str(q.get(k, product)) for k in _ANGLES}
