@@ -81,9 +81,10 @@ def _extract_output_text(data: dict) -> str:
 
 
 def _chat_responses(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
-    """OpenAI Responses 协议（/v1/responses）。instructions 传 system，input 传 user。"""
+    """Responses 协议（base_url + /responses）。instructions 传 system，input 传 user。
+    base_url 需自带版本段（如 .../v1），代码不再自动补 /v1。"""
     data = _post(
-        base_url.rstrip("/") + "/v1/responses",
+        base_url.rstrip("/") + "/responses",
         {"model": model, "instructions": system, "input": user},
         {"Authorization": "Bearer " + api_key},
         timeout=90,
@@ -94,9 +95,9 @@ def _chat_responses(base_url: str, api_key: str, model: str, system: str, user: 
 
 
 def _chat_completions(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
-    """标准 Chat Completions 协议（/v1/chat/completions）。"""
+    """标准 Chat Completions 协议（base_url + /chat/completions）。"""
     data = _post(
-        base_url.rstrip("/") + "/v1/chat/completions",
+        base_url.rstrip("/") + "/chat/completions",
         {
             "model": model,
             "messages": [
@@ -113,10 +114,10 @@ def _chat_completions(base_url: str, api_key: str, model: str, system: str, user
 
 
 def _chat_legacy(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
-    """Legacy Completions 协议（/v1/completions），纯文本补全，无多轮角色。"""
+    """Legacy Completions 协议（base_url + /completions），纯文本补全，无多轮角色。"""
     prompt = (system + "\n\n" + user).strip()
     data = _post(
-        base_url.rstrip("/") + "/v1/completions",
+        base_url.rstrip("/") + "/completions",
         {"model": model, "prompt": prompt, "max_tokens": 2048},
         {"Authorization": "Bearer " + api_key},
         timeout=90,
@@ -127,9 +128,9 @@ def _chat_legacy(base_url: str, api_key: str, model: str, system: str, user: str
 
 
 def _chat_anthropic(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
-    """Anthropic Messages 协议（/v1/messages）。system 独立字段，鉴权用 x-api-key。"""
+    """Anthropic Messages 协议（base_url + /messages）。system 独立字段，鉴权用 x-api-key。"""
     req = urllib.request.Request(
-        base_url.rstrip("/") + "/v1/messages",
+        base_url.rstrip("/") + "/messages",
         data=json.dumps({
             "model": model,
             "system": system,
