@@ -112,9 +112,54 @@ def _chat_completions(base_url: str, api_key: str, model: str, system: str, user
     return (data["choices"][0]["message"]["content"] or "").strip()
 
 
+def _chat_legacy(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+    """Legacy Completions 协议（/v1/completions），纯文本补全，无多轮角色。"""
+    prompt = (system + "\n\n" + user).strip()
+    data = _post(
+        base_url.rstrip("/") + "/v1/completions",
+        {"model": model, "prompt": prompt, "max_tokens": 2048},
+        {"Authorization": "Bearer " + api_key},
+        timeout=90,
+    )
+    if data.get("error"):
+        raise RuntimeError(str(data["error"]))
+    return (data["choices"][0].get("text") or "").strip()
+
+
+def _chat_anthropic(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+    """Anthropic Messages 协议（/v1/messages）。system 独立字段，鉴权用 x-api-key。"""
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/v1/messages",
+        data=json.dumps({
+            "model": model,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+            "max_tokens": 2048,
+        }).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=90) as r:
+        data = json.load(r)
+    if data.get("error"):
+        raise RuntimeError(str(data["error"]))
+    parts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+    return "".join(parts).strip()
+
+
+_PROTOCOLS = ("responses", "chat_completions", "completions", "anthropic")
+
+
 def _chat(base_url: str, api_key: str, model: str, system: str, user: str, protocol: str = "responses") -> str:
     if protocol == "chat_completions":
         return _chat_completions(base_url, api_key, model, system, user)
+    if protocol == "completions":
+        return _chat_legacy(base_url, api_key, model, system, user)
+    if protocol == "anthropic":
+        return _chat_anthropic(base_url, api_key, model, system, user)
     return _chat_responses(base_url, api_key, model, system, user)
 
 
@@ -286,7 +331,7 @@ class handler(BaseHTTPRequestHandler):
         provider = (body.get("search_provider") or "duckduckgo").strip()
         search_key = (body.get("search_key") or "").strip() or TAVILY_KEY
         protocol = (body.get("protocol") or "responses").strip()
-        if protocol not in ("responses", "chat_completions"):
+        if protocol not in _PROTOCOLS:
             protocol = "responses"
 
         logs = []
