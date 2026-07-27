@@ -60,7 +60,13 @@
         <div><label>API Key（留空用共享额度）</label><input id="api_key" type="password" placeholder="sk-..." /></div>
         <div><label>Tavily Key（可选，搜索更稳）</label><input id="search_key" type="password" placeholder="tvly-..." /></div>
       </div>
-      <div class="grid" style="grid-template-columns:1fr;">
+      <div class="grid" style="grid-template-columns:1fr 1fr;">
+        <div><label>API 协议（按你的 key 分组选）</label>
+          <select id="protocol">
+            <option value="responses">Responses（/v1/responses）</option>
+            <option value="chat_completions">Chat Completions（/v1/chat/completions）</option>
+          </select>
+        </div>
         <div><label>搜索后端</label>
           <select id="search_provider">
             <option value="duckduckgo">DuckDuckGo（免 key）</option>
@@ -117,6 +123,7 @@ async function go(){
     model: document.getElementById('model').value.trim(),
     search_provider: document.getElementById('search_provider').value,
     search_key: document.getElementById('search_key').value.trim(),
+    protocol: document.getElementById('protocol').value,
   };
 
   try{

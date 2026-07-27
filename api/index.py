@@ -80,8 +80,8 @@ def _extract_output_text(data: dict) -> str:
     raise ValueError("responses 返回中没有文本内容: status=" + str(data.get("status")))
 
 
-def _chat(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
-    """走 OpenAI Responses 协议（/v1/responses）。instructions 传 system，input 传 user。"""
+def _chat_responses(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+    """OpenAI Responses 协议（/v1/responses）。instructions 传 system，input 传 user。"""
     data = _post(
         base_url.rstrip("/") + "/v1/responses",
         {"model": model, "instructions": system, "input": user},
@@ -91,6 +91,31 @@ def _chat(base_url: str, api_key: str, model: str, system: str, user: str) -> st
     if data.get("error"):
         raise RuntimeError(str(data["error"]))
     return _extract_output_text(data)
+
+
+def _chat_completions(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+    """标准 Chat Completions 协议（/v1/chat/completions）。"""
+    data = _post(
+        base_url.rstrip("/") + "/v1/chat/completions",
+        {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        },
+        {"Authorization": "Bearer " + api_key},
+        timeout=90,
+    )
+    if data.get("error"):
+        raise RuntimeError(str(data["error"]))
+    return (data["choices"][0]["message"]["content"] or "").strip()
+
+
+def _chat(base_url: str, api_key: str, model: str, system: str, user: str, protocol: str = "responses") -> str:
+    if protocol == "chat_completions":
+        return _chat_completions(base_url, api_key, model, system, user)
+    return _chat_responses(base_url, api_key, model, system, user)
 
 
 def _extract_json(text: str) -> dict:
@@ -104,13 +129,13 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[s : e + 1])
 
 
-def _chat_json(base_url, api_key, model, system, user) -> dict:
+def _chat_json(base_url, api_key, model, system, user, protocol="responses") -> dict:
     sys = system + "\n只返回一个 JSON 对象，不要任何额外文字、不要用 markdown 代码块。"
     try:
-        return _extract_json(_chat(base_url, api_key, model, sys, user))
+        return _extract_json(_chat(base_url, api_key, model, sys, user, protocol))
     except Exception:
         return _extract_json(
-            _chat(base_url, api_key, model, sys + "\n上次不是合法 JSON，重新只输出 JSON。", user)
+            _chat(base_url, api_key, model, sys + "\n上次不是合法 JSON，重新只输出 JSON。", user, protocol)
         )
 
 
@@ -159,12 +184,13 @@ def _fmt(results: list) -> str:
     return "\n".join(f"- {r['title']}: {r['snippet']}" for r in results)
 
 
-def run_pipeline(product, base_url, api_key, model, provider, search_key, log):
+def run_pipeline(product, base_url, api_key, model, provider, search_key, log, protocol="responses"):
     log("① 扩展搜索词…")
     q = _chat_json(
         base_url, api_key, model, "你是搜索词扩展助手。",
         f"用户想调研产品「{product}」（可能是俗称或拼写不准）。补全为官方名称并生成 3 组搜索查询，JSON："
         '{"official":"<官网/基本信息>","reviews":"<用户评价,带 评价/怎么样/吐槽>","competitors":"<竞品,带 对比/vs/平替>"}，每个查询≤20字。',
+        protocol,
     )
     queries = {k: str(q.get(k, product)) for k in _ANGLES}
     for a in _ANGLES:
@@ -187,6 +213,7 @@ def run_pipeline(product, base_url, api_key, model, provider, search_key, log):
         base_url, api_key, model, "你是信息提炼助手。",
         f"以下是关于「{product}」的三路检索结果。去重、区分事实与观点、每角度提炼≤5条要点。"
         'JSON，键 "official"/"reviews"/"competitors"，值为字符串数组，不足给空数组。\n\n' + joined,
+        protocol,
     )
     distilled = {k: [str(x) for x in d.get(k, [])][:5] for k in _ANGLES}
 
@@ -202,6 +229,7 @@ def run_pipeline(product, base_url, api_key, model, provider, search_key, log):
         '"user_voice":{"praises":[],"complaints":[]},'
         '"competitors":[{"name":"","difference":""}],"risk_notes":[],"conclusion":""}'
         "信息不足写\"公开信息有限\"，绝不编造。\n\n" + src,
+        protocol,
     )
     report["_meta"] = {"search_provider": provider, "results_used": total, "queries": queries}
     log("✓ 完成")
@@ -257,10 +285,13 @@ class handler(BaseHTTPRequestHandler):
         model = (body.get("model") or "").strip() or DEFAULT_MODEL
         provider = (body.get("search_provider") or "duckduckgo").strip()
         search_key = (body.get("search_key") or "").strip() or TAVILY_KEY
+        protocol = (body.get("protocol") or "responses").strip()
+        if protocol not in ("responses", "chat_completions"):
+            protocol = "responses"
 
         logs = []
         try:
-            report = run_pipeline(product, base_url, api_key, model, provider, search_key, logs.append)
+            report = run_pipeline(product, base_url, api_key, model, provider, search_key, logs.append, protocol)
             return self._send(200, {"report": report, "logs": logs, "shared_key": using_shared})
         except Exception as e:
             return self._send(500, {"error": f"流水线执行失败：{e}", "logs": logs})
