@@ -87,7 +87,7 @@
 </div>
 
 <script>
-function fill(v){ document.getElementById('product').value = v; go(); }
+function fill(v){ document.getElementById('product').value = v; document.getElementById('product').focus(); }
 function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
 function bullets(arr){ return (arr && arr.length) ? '<ul>'+arr.map(i=>'<li>'+esc(String(i))+'</li>').join('')+'</ul>' : '<p>公开信息有限</p>'; }
 
