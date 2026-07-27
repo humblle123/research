@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>竞品调研流水线</title>
+<style>
+  :root { --brand:#4f46e5; --bg:#f6f7fb; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:#111827; }
+  .wrap { max-width:880px; margin:0 auto; padding:32px 18px 80px; }
+  h1 { font-size:24px; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:14px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .row { display:flex; gap:10px; }
+  input,select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; }
+  input:focus,select:focus { outline:2px solid var(--brand); outline-offset:0; border-color:var(--brand); }
+  button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:14px; cursor:pointer; white-space:nowrap; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  details { margin-top:12px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+  .examples { margin-top:10px; font-size:13px; color:var(--muted); }
+  .chip { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:3px 12px; margin:2px 4px 0 0; cursor:pointer; background:#fff; font-size:13px; }
+  .chip:hover { border-color:var(--brand); color:var(--brand); }
+  #log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#374151; background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:12px; white-space:pre-wrap; display:none; }
+  .badge { display:none; font-size:12px; background:#fef3c7; color:#92400e; border-radius:6px; padding:3px 8px; margin-left:8px; }
+  /* 报告样式 */
+  #report h1 { font-size:20px; } #report h2 { font-size:16px; margin:18px 0 8px; border-left:3px solid var(--brand); padding-left:8px; }
+  #report p, #report li { font-size:14px; line-height:1.7; }
+  #report ul { padding-left:20px; margin:6px 0; }
+  #report blockquote { margin:10px 0; padding:8px 14px; background:#eef2ff; border-radius:8px; color:#3730a3; }
+  #report .meta { margin-top:20px; padding-top:12px; border-top:1px dashed var(--line); color:var(--muted); font-size:12px; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid #c7d2fe; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .err { color:#b91c1c; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 竞品 / 产品调研流水线</h1>
+  <div class="sub">输入任意产品名，<b>并行检索</b>官网信息、用户口碑、竞品对比三个维度，汇总去重后生成结构化调研报告。</div>
+
+  <div class="card">
+    <div class="row">
+      <input id="product" placeholder="例如：Notion" onkeydown="if(event.key==='Enter')go()" />
+      <button id="btn" onclick="go()">开始调研</button>
+    </div>
+    <div class="examples">
+      试试：<span class="chip" onclick="fill('Notion')">Notion</span><span class="chip" onclick="fill('元气森林')">元气森林</span><span class="chip" onclick="fill('Figma')">Figma</span><span class="chip" onclick="fill('ChatGPT')">ChatGPT</span>
+      <span id="sharedBadge" class="badge">正在使用共享演示额度</span>
+    </div>
+
+    <details>
+      <summary>⚙️ 高级设置（用自己的 API Key / 换模型 / 换搜索）</summary>
+      <div class="grid">
+        <div><label>Base URL（留空用服务端默认）</label><input id="base_url" placeholder="https://api.openai.com" /></div>
+        <div><label>Model（留空用默认）</label><input id="model" placeholder="gpt-5.5" /></div>
+        <div><label>API Key（留空用共享额度）</label><input id="api_key" type="password" placeholder="sk-..." /></div>
+        <div><label>Tavily Key（可选，搜索更稳）</label><input id="search_key" type="password" placeholder="tvly-..." /></div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr;">
+        <div><label>搜索后端</label>
+          <select id="search_provider">
+            <option value="duckduckgo">DuckDuckGo（免 key）</option>
+            <option value="tavily">Tavily（需 key，更稳）</option>
+          </select>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div id="log"></div>
+  <div class="card" id="reportCard" style="display:none;"><div id="report"></div></div>
+</div>
+
+<script>
+function fill(v){ document.getElementById('product').value = v; go(); }
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function bullets(arr){ return (arr && arr.length) ? '<ul>'+arr.map(i=>'<li>'+esc(String(i))+'</li>').join('')+'</ul>' : '<p>公开信息有限</p>'; }
+
+function renderReport(rep){
+  const uv = rep.user_voice || {};
+  const comps = (rep.competitors||[]).map(c=>'<li><b>'+esc(c.name||'?')+'</b>：'+esc(c.difference||'')+'</li>').join('');
+  const meta = rep._meta || {};
+  const degraded = meta.results_used===0 ? ' <span style="color:#b45309">（⚠ 本次未检索到网络结果，仅基于模型知识，可信度较低）</span>' : '';
+  return '<h1>'+esc(rep.product_name||'调研报告')+'</h1>'
+    + '<blockquote>'+esc(rep.one_line||'')+degraded+'</blockquote>'
+    + '<h2>定位</h2><p>'+esc(rep.positioning||'公开信息有限')+'</p>'
+    + '<h2>核心功能</h2>'+bullets(rep.core_features)
+    + '<h2>用户口碑 · 好评</h2>'+bullets(uv.praises)
+    + '<h2>用户口碑 · 吐槽</h2>'+bullets(uv.complaints)
+    + '<h2>竞品对比</h2>'+(comps?'<ul>'+comps+'</ul>':'<p>公开信息有限</p>')
+    + '<h2>风险提示</h2>'+bullets(rep.risk_notes)
+    + '<h2>结论</h2><p>'+esc(rep.conclusion||'')+'</p>'
+    + '<div class="meta">由 AI 基于 3 路并行检索 + 2 轮提炼生成 · 搜索后端：'+esc(meta.search_provider||'?')+' · 引用检索结果 '+(meta.results_used||0)+' 条 · 仅供参考</div>';
+}
+
+async function go(){
+  const product = document.getElementById('product').value.trim();
+  const btn = document.getElementById('btn');
+  const logEl = document.getElementById('log');
+  const reportCard = document.getElementById('reportCard');
+  const reportEl = document.getElementById('report');
+  if(!product){ reportCard.style.display='block'; reportEl.innerHTML='<p class="err">请输入产品名。</p>'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 调研中…';
+  logEl.style.display = 'block'; logEl.textContent = '正在启动流水线…';
+  reportCard.style.display = 'none';
+
+  const payload = {
+    product,
+    base_url: document.getElementById('base_url').value.trim(),
+    api_key: document.getElementById('api_key').value.trim(),
+    model: document.getElementById('model').value.trim(),
+    search_provider: document.getElementById('search_provider').value,
+    search_key: document.getElementById('search_key').value.trim(),
+  };
+
+  try{
+    const res = await fetch('/api/research', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!res.ok){
+      reportCard.style.display='block';
+      reportEl.innerHTML = '<p class="err">❌ '+esc(data.error||('HTTP '+res.status))+'</p>';
+      logEl.textContent = (data.logs||[]).join('\n');
+    } else {
+      logEl.textContent = (data.logs||[]).join('\n');
+      document.getElementById('sharedBadge').style.display = data.shared_key ? 'inline-block' : 'none';
+      reportEl.innerHTML = renderReport(data.report||{});
+      reportCard.style.display='block';
+    }
+  }catch(e){
+    reportCard.style.display='block';
+    reportEl.innerHTML = '<p class="err">❌ 网络错误：'+esc(String(e))+'</p>';
+  }finally{
+    btn.disabled = false; btn.textContent = '开始调研';
+  }
+}
+</script>
+</body>
+</html>
