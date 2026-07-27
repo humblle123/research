@@ -24,7 +24,7 @@
   .examples { margin-top:10px; font-size:13px; color:var(--muted); }
   .chip { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:3px 12px; margin:2px 4px 0 0; cursor:pointer; background:#fff; font-size:13px; }
   .chip:hover { border-color:var(--brand); color:var(--brand); }
-  #log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#374151; background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:12px; white-space:pre-wrap; display:none; }
+  #log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#374151; background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:12px; white-space:pre-wrap; display:none; max-height:220px; overflow-y:auto; }
   .badge { display:none; font-size:12px; background:#fef3c7; color:#92400e; border-radius:6px; padding:3px 8px; margin-left:8px; }
   /* 报告样式 */
   #report h1 { font-size:20px; } #report h2 { font-size:16px; margin:18px 0 8px; border-left:3px solid var(--brand); padding-left:8px; }
@@ -79,7 +79,10 @@
     </details>
   </div>
 
-  <div id="log"></div>
+  <div id="logWrap" style="display:none;">
+    <div style="font-size:12px;color:var(--muted);margin:0 0 4px;">⚙️ 流水线实时进度</div>
+    <div id="log"></div>
+  </div>
   <div class="card" id="reportCard" style="display:none;"><div id="report"></div></div>
 </div>
 
@@ -108,6 +111,7 @@ function renderReport(rep){
 async function go(){
   const product = document.getElementById('product').value.trim();
   const btn = document.getElementById('btn');
+  const logWrap = document.getElementById('logWrap');
   const logEl = document.getElementById('log');
   const reportCard = document.getElementById('reportCard');
   const reportEl = document.getElementById('report');
@@ -115,7 +119,7 @@ async function go(){
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> 调研中…';
-  logEl.style.display = 'block'; logEl.textContent = '正在启动流水线…';
+  logWrap.style.display = 'block'; logEl.textContent = '正在启动流水线…';
   reportCard.style.display = 'none';
 
   const payload = {
@@ -132,16 +136,41 @@ async function go(){
     const res = await fetch('/api/index', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
-    const data = await res.json();
+    // 非 2xx：后端在流开始前就返回的 JSON 错误（缺 key/限流等）
     if(!res.ok){
+      const data = await res.json().catch(()=>({}));
       reportCard.style.display='block';
       reportEl.innerHTML = '<p class="err">❌ '+esc(data.error||('HTTP '+res.status))+'</p>';
-      logEl.textContent = (data.logs||[]).join('\n');
-    } else {
-      logEl.textContent = (data.logs||[]).join('\n');
-      document.getElementById('sharedBadge').style.display = data.shared_key ? 'inline-block' : 'none';
-      reportEl.innerHTML = renderReport(data.report||{});
-      reportCard.style.display='block';
+      logEl.textContent = '';
+      return;
+    }
+    // 流式读取 NDJSON：逐行实时显示进度
+    logEl.textContent = '';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += decoder.decode(value, {stream:true});
+      const lines = buf.split('\n');
+      buf = lines.pop();  // 最后半行留到下次
+      for(const line of lines){
+        if(!line.trim()) continue;
+        let ev; try{ ev = JSON.parse(line); }catch{ continue; }
+        if(ev.type === 'log'){
+          logEl.textContent += ev.text + '\n';
+          logEl.scrollTop = logEl.scrollHeight;
+        } else if(ev.type === 'shared_key'){
+          document.getElementById('sharedBadge').style.display = 'inline-block';
+        } else if(ev.type === 'report'){
+          reportEl.innerHTML = renderReport(ev.report||{});
+          reportCard.style.display='block';
+        } else if(ev.type === 'error'){
+          reportCard.style.display='block';
+          reportEl.innerHTML = '<p class="err">❌ '+esc(ev.error||'未知错误')+'</p>';
+        }
+      }
     }
   }catch(e){
     reportCard.style.display='block';

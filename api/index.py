@@ -234,8 +234,11 @@ def run_pipeline(product, base_url, api_key, model, provider, search_key, log, p
     log("① 扩展搜索词…")
     q = _chat_json(
         base_url, api_key, model, "你是搜索词扩展助手。",
-        f"用户想调研产品「{product}」（可能是俗称或拼写不准）。补全为官方名称并生成 3 组搜索查询，JSON："
-        '{"official":"<官网/基本信息>","reviews":"<用户评价,带 评价/怎么样/吐槽>","competitors":"<竞品,带 对比/vs/平替>"}，每个查询≤20字。',
+        f"用户想调研产品「{product}」。先补全/纠正为官方产品名，再据此生成 3 组用于搜索引擎的查询词。\n"
+        "要求：每个查询以官方产品名开头，后跟 1~2 个检索词；不要把维度名（如\"竞品对比\"\"用户口碑\"本身）当作查询词。\n"
+        "示例（产品是 Notion 时）：official=\"Notion 官网 功能\"，reviews=\"Notion 怎么样 评价\"，competitors=\"Notion 平替 对比\"。\n"
+        "严格 JSON 返回："
+        '{"official":"<官方名称+官网/功能>","reviews":"<官方名称+评价/怎么样>","competitors":"<官方名称+平替/vs/对比>"}，每个查询≤20字。',
         protocol,
     )
     queries = {k: str(q.get(k, product)) for k in _ANGLES}
@@ -294,6 +297,23 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream_start(self):
+        """开启流式响应：逐行写 JSON 事件（NDJSON）。"""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")  # 禁用代理缓冲，保证实时
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+    def _stream_event(self, obj: dict):
+        line = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+        try:
+            self.wfile.write(line)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            raise _ClientGone()
+
     def do_OPTIONS(self):
         self._send(200, {})
 
@@ -335,12 +355,25 @@ class handler(BaseHTTPRequestHandler):
         if protocol not in _PROTOCOLS:
             protocol = "responses"
 
-        logs = []
+        # 流式执行：每步实时推送日志，最后推送报告
+        self._stream_start()
+        if using_shared:
+            self._stream_event({"type": "shared_key", "value": True})
         try:
-            report = run_pipeline(product, base_url, api_key, model, provider, search_key, logs.append, protocol)
-            return self._send(200, {"report": report, "logs": logs, "shared_key": using_shared})
+            report = run_pipeline(
+                product, base_url, api_key, model, provider, search_key,
+                log=lambda m: self._stream_event({"type": "log", "text": m}),
+                protocol=protocol,
+            )
+            self._stream_event({"type": "report", "report": report})
+        except _ClientGone:
+            pass
         except Exception as e:
-            return self._send(500, {"error": f"流水线执行失败：{e}", "logs": logs})
+            self._stream_event({"type": "error", "error": f"流水线执行失败：{e}"})
 
     def log_message(self, *args):  # 静音默认访问日志
         pass
+
+
+class _ClientGone(Exception):
+    """客户端提前断开，停止推送。"""
