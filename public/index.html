@@ -120,7 +120,7 @@ async function go(){
   };
 
   try{
-    const res = await fetch('/api/research', {
+    const res = await fetch('/api/index', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const data = await res.json();
