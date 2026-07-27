@@ -275,7 +275,68 @@ def _fmt(results: list) -> str:
     return "\n".join(f"- {r['title']}: {r['snippet']}" for r in results)
 
 
-def run_pipeline(product, base_url, api_key, model, provider, search_key, log, protocol="responses"):
+# 报告的各节，按顺序逐节生成并流式推送
+_SECTIONS = (
+    ("one_line", "一句话定位", "用一句话概括这个产品的定位"),
+    ("positioning", "定位", "目标用户和核心使用场景，2-3 句"),
+    ("core_features", "核心功能", "列出 4-6 个核心功能，返回 JSON 字符串数组（如 [\"功能1\",\"功能2\"]），不要返回对象"),
+    ("user_voice", "用户口碑", '好评与吐槽，返回 JSON 对象 {"praises":["..."],"complaints":["..."]}'),
+    ("competitors", "竞品对比", '列出主要竞品，返回 JSON 数组 [{"name":"竞品名","difference":"差异"}]，不要返回单个对象'),
+    ("risk_notes", "风险提示", "列出 2-4 条风险或注意点，返回 JSON 字符串数组，不要返回对象"),
+    ("conclusion", "结论", "2-3 句总结：适合什么人或场景"),
+)
+
+
+def _gen_section(client_args, product, src, key, instruction):
+    """生成报告的某一节，返回 (key, value)。value 为 str 或 list/dict。单节失败降级为空，不中断流水线。"""
+    is_list = key in ("core_features", "risk_notes", "competitors")
+    is_obj = key == "user_voice"
+    base_url, api_key, model, protocol = client_args
+    if is_list or is_obj:
+        try:
+            data = _chat_json(
+                base_url, api_key, model, "你是产品调研分析师。",
+                f"基于以下关于「{product}」的已提炼信息，{instruction}。只返回 JSON（对象或数组），信息不足给空。绝不编造。\n\n{src}",
+                protocol,
+            )
+        except Exception:
+            return key, ({} if is_obj else [])
+        # 模型可能包一层，如 {"core_features":[...]} 或 {"features":[...]}
+        if isinstance(data, dict):
+            if key in data:
+                data = data[key]
+            else:
+                vals = list(data.values())
+                if len(vals) == 1 and isinstance(vals[0], (dict if is_obj else list)):
+                    data = vals[0]
+                # 否则保留 dict，走下面 list 节兜底
+        # list 节兜底：拿到 dict 时把其值展平成 list，拿到标量时包成单元素 list
+        if is_list and not isinstance(data, list):
+            if isinstance(data, dict):
+                flat = []
+                for v in data.values():
+                    flat.extend(v if isinstance(v, list) else [v])
+                data = [x for x in flat if x]
+            elif data:
+                data = [data]
+            else:
+                data = []
+        if is_obj and not isinstance(data, dict):
+            data = {}
+        return key, data
+    try:
+        text = _chat(
+            base_url, api_key, model, "你是产品调研分析师。",
+            f"基于以下关于「{product}」的已提炼信息，{instruction}。直接输出文字，不要 JSON、不要标题、不要多余内容。信息不足写\"公开信息有限\"。绝不编造。\n\n{src}",
+            protocol,
+        )
+        return key, text.strip()
+    except Exception:
+        return key, "公开信息有限"
+
+
+def run_pipeline(product, base_url, api_key, model, provider, search_key, log, protocol="responses", stream=None):
+    """跑完整调研流水线。stream 不为 None 时，报告各节通过 stream(key, label, value) 逐节推送。"""
     log("① 扩展搜索词…")
     q = _chat_json(
         base_url, api_key, model, "你是搜索词扩展助手。",
@@ -309,23 +370,48 @@ def run_pipeline(product, base_url, api_key, model, provider, search_key, log, p
     )
     distilled = {k: [str(x) for x in d.get(k, [])][:5] for k in _ANGLES}
 
-    log("④ 生成结构化报告…")
+    log("④ 逐节生成报告…")
     src = "\n\n".join(
         f"## {_ANGLE_LABEL[a]}\n" + ("\n".join("- " + p for p in distilled[a]) or "（无）")
         for a in _ANGLES
     )
-    report = _chat_json(
-        base_url, api_key, model, "你是产品调研分析师。",
-        f"基于以下已提炼的关于「{product}」的信息生成调研报告，严格 JSON："
-        '{"product_name":"","one_line":"","positioning":"","core_features":[],'
-        '"user_voice":{"praises":[],"complaints":[]},'
-        '"competitors":[{"name":"","difference":""}],"risk_notes":[],"conclusion":""}'
-        "信息不足写\"公开信息有限\"，绝不编造。\n\n" + src,
-        protocol,
-    )
+    client_args = (base_url, api_key, model, protocol)
+    report = {"product_name": product}
+    for key, label, instruction in _SECTIONS:
+        log(f"  · {label}…")
+        k, value = _gen_section(client_args, product, src, key, instruction)
+        report[k] = value
+        if stream:
+            stream(k, label, value)
     report["_meta"] = {"search_provider": provider, "results_used": total, "queries": queries}
     log("✓ 完成")
     return report
+
+
+def answer_followup(messages, base_url, api_key, model, protocol, stream=None):
+    """追问：带完整历史直接调 LLM。stream 回调逐段推送文本块。"""
+    # 把历史拼成一段对话文本（responses/legacy 协议无多轮结构，统一拼 prompt）
+    convo = "\n".join(
+        ("用户：" if m.get("role") == "user" else "助手：") + m.get("content", "")
+        for m in messages
+    )
+    out = _chat(
+        base_url, api_key, model,
+        "你是产品调研助手，正在与用户就多轮对话。请基于之前的对话内容回答用户的最新问题，简洁专业。",
+        convo + "\n助手：",
+        protocol,
+    )
+    if stream:
+        # 逐段推送（按句切，模拟打字机）
+        buf = ""
+        for ch in out:
+            buf += ch
+            if len(buf) >= 24 or ch in "。！？\n":
+                stream(buf)
+                buf = ""
+        if buf:
+            stream(buf)
+    return out
 
 
 # ---------------- Handler ----------------
@@ -373,8 +459,14 @@ class handler(BaseHTTPRequestHandler):
         product = (body.get("product") or "").strip()
         if not product:
             return self._send(400, {"error": "缺少 product"})
-        if len(product) > 100:
-            return self._send(400, {"error": "product 过长"})
+        if len(product) > 500:
+            return self._send(400, {"error": "输入过长"})
+        # 对话历史（多轮记忆），前端每次带上
+        messages = body.get("messages") or []
+        if not isinstance(messages, list):
+            messages = []
+        # 追问判定：有历史 且 显式标记为追问
+        is_followup = bool(body.get("followup")) and len(messages) > 0
 
         # key 策略：访客优先，否则服务端共享 key（受限流保护）
         visitor_key = (body.get("api_key") or "").strip()
@@ -398,21 +490,33 @@ class handler(BaseHTTPRequestHandler):
         if protocol not in _PROTOCOLS:
             protocol = "responses"
 
-        # 流式执行：每步实时推送日志，最后推送报告
         self._stream_start()
         if using_shared:
             self._stream_event({"type": "shared_key", "value": True})
         try:
-            report = run_pipeline(
-                product, base_url, api_key, model, provider, search_key,
-                log=lambda m: self._stream_event({"type": "log", "text": m}),
-                protocol=protocol,
-            )
-            self._stream_event({"type": "report", "report": report})
+            if is_followup:
+                # 追问：带历史直接流式回答
+                history = messages[-12:] + [{"role": "user", "content": product}]
+                answer_followup(
+                    history, base_url, api_key, model, protocol,
+                    stream=lambda chunk: self._stream_event({"type": "chunk", "text": chunk}),
+                )
+                self._stream_event({"type": "done"})
+            else:
+                # 完整调研：流水线 + 报告分节流式
+                report = run_pipeline(
+                    product, base_url, api_key, model, provider, search_key,
+                    log=lambda m: self._stream_event({"type": "log", "text": m}),
+                    protocol=protocol,
+                    stream=lambda k, label, value: self._stream_event(
+                        {"type": "section", "key": k, "label": label, "value": value}
+                    ),
+                )
+                self._stream_event({"type": "report_done", "meta": report.get("_meta", {}), "product_name": report.get("product_name", product)})
         except _ClientGone:
             pass
         except Exception as e:
-            self._stream_event({"type": "error", "error": f"流水线执行失败：{e}"})
+            self._stream_event({"type": "error", "error": f"执行失败：{e}"})
 
     def log_message(self, *args):  # 静音默认访问日志
         pass

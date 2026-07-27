@@ -3,182 +3,299 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>竞品调研流水线</title>
+<title>竞品调研助手</title>
 <style>
-  :root { --brand:#4f46e5; --bg:#f6f7fb; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
+  :root { --brand:#10a37f; --bg:#fff; --side:#f9f9f9; --line:#e5e5e5; --muted:#6e6e80; --text:#0d0d0d; --bubble:#f4f4f4; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:#111827; }
-  .wrap { max-width:880px; margin:0 auto; padding:32px 18px 80px; }
-  h1 { font-size:24px; margin:0 0 6px; }
-  .sub { color:var(--muted); font-size:14px; margin-bottom:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
-  .row { display:flex; gap:10px; }
-  input,select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; }
-  input:focus,select:focus { outline:2px solid var(--brand); outline-offset:0; border-color:var(--brand); }
-  button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px 22px; font-size:14px; cursor:pointer; white-space:nowrap; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  details { margin-top:12px; }
-  summary { cursor:pointer; color:var(--muted); font-size:13px; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
-  label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
-  .examples { margin-top:10px; font-size:13px; color:var(--muted); }
-  .chip { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:3px 12px; margin:2px 4px 0 0; cursor:pointer; background:#fff; font-size:13px; }
-  .chip:hover { border-color:var(--brand); color:var(--brand); }
-  #log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#374151; background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:12px; white-space:pre-wrap; display:none; max-height:220px; overflow-y:auto; }
-  .badge { display:none; font-size:12px; background:#fef3c7; color:#92400e; border-radius:6px; padding:3px 8px; margin-left:8px; }
-  /* 报告样式 */
-  #report h1 { font-size:20px; } #report h2 { font-size:16px; margin:18px 0 8px; border-left:3px solid var(--brand); padding-left:8px; }
-  #report p, #report li { font-size:14px; line-height:1.7; }
-  #report ul { padding-left:20px; margin:6px 0; }
-  #report blockquote { margin:10px 0; padding:8px 14px; background:#eef2ff; border-radius:8px; color:#3730a3; }
-  #report .meta { margin-top:20px; padding-top:12px; border-top:1px dashed var(--line); color:var(--muted); font-size:12px; }
-  .spinner { display:inline-block; width:14px; height:14px; border:2px solid #c7d2fe; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .err { color:#b91c1c; font-size:14px; }
+  html,body { height:100%; margin:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--text); background:var(--bg); display:flex; overflow:hidden; }
+  button { font-family:inherit; cursor:pointer; }
+
+  /* 侧边栏 */
+  #sidebar { width:240px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; flex-shrink:0; }
+  #sidebar .top { padding:12px; }
+  #newChat { width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:14px; text-align:left; }
+  #newChat:hover { background:#ececec; }
+  #sessList { flex:1; overflow-y:auto; padding:0 8px 8px; }
+  .sess { padding:9px 12px; border-radius:8px; font-size:13px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#333; }
+  .sess:hover { background:#ececec; }
+  .sess.active { background:#e3e3e3; }
+  #settings { border-top:1px solid var(--line); padding:10px 12px; font-size:13px; color:var(--muted); cursor:pointer; }
+  #settings:hover { background:#ececec; }
+
+  /* 主区 */
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #chatScroll { flex:1; overflow-y:auto; }
+  #chatInner { max-width:760px; margin:0 auto; padding:24px 20px 24px; }
+  .msg { display:flex; margin-bottom:22px; }
+  .msg .avatar { width:30px; height:30px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:15px; margin-right:12px; }
+  .msg.user .avatar { background:#10a37f22; }
+  .msg.ai .avatar { background:#eee; }
+  .msg .body { flex:1; min-width:0; font-size:15px; line-height:1.7; }
+  .msg .who { font-size:12px; color:var(--muted); margin-bottom:3px; }
+
+  /* 报告气泡内的各节 */
+  .sec h3 { font-size:14px; margin:14px 0 6px; color:var(--text); border-left:3px solid var(--brand); padding-left:8px; }
+  .sec h3:first-child { margin-top:6px; }
+  .sec p { margin:4px 0; }
+  .sec ul { margin:4px 0; padding-left:20px; }
+  .sec .one-line { background:#f0fdf9; border:1px solid #d3f0e6; border-radius:8px; padding:8px 12px; }
+  .report-meta { margin-top:14px; padding-top:10px; border-top:1px dashed var(--line); color:var(--muted); font-size:12px; }
+  .degraded { color:#b45309; font-size:13px; }
+
+  /* 进度日志 */
+  .progress { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--muted); background:#fafafa; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:6px 0; white-space:pre-wrap; }
+  .cursor { display:inline-block; width:8px; height:16px; background:var(--text); vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .typing-dots span { display:inline-block; width:6px; height:6px; background:#999; border-radius:50%; margin-right:4px; animation:bounce 1.2s infinite; }
+  .typing-dots span:nth-child(2){ animation-delay:.15s } .typing-dots span:nth-child(3){ animation-delay:.3s }
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+
+  /* 空态 */
+  #empty { text-align:center; margin-top:12vh; }
+  #empty h1 { font-size:26px; font-weight:600; }
+  #empty p { color:var(--muted); font-size:14px; }
+  .chip { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:6px 14px; margin:4px; cursor:pointer; background:#fff; font-size:13px; }
+  .chip:hover { background:#f0f0f0; }
+
+  /* 输入区 */
+  #inputBar { border-top:1px solid var(--line); padding:12px 20px 18px; }
+  #inputInner { max-width:760px; margin:0 auto; display:flex; gap:10px; align-items:flex-end; background:#fff; border:1px solid var(--line); border-radius:16px; padding:10px 12px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+  #inputInner:focus-within { border-color:#c7c7c7; }
+  #ta { flex:1; border:0; outline:0; resize:none; font-size:15px; font-family:inherit; max-height:160px; line-height:1.5; }
+  #send { width:34px; height:34px; border-radius:50%; border:0; background:var(--text); color:#fff; font-size:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  #send:disabled { background:#d7d7d7; cursor:not-allowed; }
+  #sharedBadge { display:none; font-size:11px; background:#fef3c7; color:#92400e; border-radius:6px; padding:2px 8px; margin-left:6px; }
+
+  /* 设置抽屉 */
+  #drawer { position:fixed; top:0; right:-340px; width:320px; height:100%; background:#fff; border-left:1px solid var(--line); box-shadow:-4px 0 16px rgba(0,0,0,.06); transition:right .25s; z-index:50; padding:18px; overflow-y:auto; }
+  #drawer.open { right:0; }
+  #drawer h2 { font-size:16px; margin:0 0 14px; }
+  #drawer label { font-size:12px; color:var(--muted); display:block; margin:12px 0 4px; }
+  #drawer input,#drawer select { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  #drawerClose { position:absolute; top:12px; right:12px; border:0; background:none; font-size:20px; color:var(--muted); }
+  .err { color:#b91c1c; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>🔍 竞品 / 产品调研流水线</h1>
-  <div class="sub">输入任意产品名，<b>并行检索</b>官网信息、用户口碑、竞品对比三个维度，汇总去重后生成结构化调研报告。</div>
-
-  <div class="card">
-    <div class="row">
-      <input id="product" placeholder="例如：Notion" onkeydown="if(event.key==='Enter')go()" />
-      <button id="btn" onclick="go()">开始调研</button>
-    </div>
-    <div class="examples">
-      试试：<span class="chip" onclick="fill('Notion')">Notion</span><span class="chip" onclick="fill('元气森林')">元气森林</span><span class="chip" onclick="fill('Figma')">Figma</span><span class="chip" onclick="fill('ChatGPT')">ChatGPT</span>
-      <span id="sharedBadge" class="badge">正在使用共享演示额度</span>
-    </div>
-
-    <details>
-      <summary>⚙️ 高级设置（用自己的 API Key / 换模型 / 换搜索）</summary>
-      <div class="grid">
-        <div><label>Base URL（留空用服务端默认）</label><input id="base_url" placeholder="https://api.openai.com" /></div>
-        <div><label>Model（留空用默认）</label><input id="model" placeholder="gpt-5.5" /></div>
-        <div><label>API Key（留空用共享额度）</label><input id="api_key" type="password" placeholder="sk-..." /></div>
-        <div><label>Tavily Key（可选，搜索更稳）</label><input id="search_key" type="password" placeholder="tvly-..." /></div>
-      </div>
-      <div class="grid" style="grid-template-columns:1fr 1fr;">
-        <div><label>API 协议（按你的 key 分组选）</label>
-          <select id="protocol">
-            <option value="responses">Responses（/v1/responses）</option>
-            <option value="chat_completions">Chat Completions（/v1/chat/completions）</option>
-            <option value="completions">Legacy Completions（/v1/completions）</option>
-            <option value="anthropic">Anthropic Messages（/v1/messages）</option>
-          </select>
-        </div>
-        <div><label>搜索后端</label>
-          <select id="search_provider">
-            <option value="duckduckgo">DuckDuckGo（免 key）</option>
-            <option value="tavily">Tavily（需 key，更稳）</option>
-          </select>
-        </div>
-      </div>
-    </details>
+  <div id="sidebar">
+    <div class="top"><button id="newChat">＋ 新建调研</button></div>
+    <div id="sessList"></div>
+    <div id="settings">⚙️ 设置<span id="sharedBadge">共享额度</span></div>
   </div>
 
-  <div id="logWrap" style="display:none;">
-    <div style="font-size:12px;color:var(--muted);margin:0 0 4px;">⚙️ 流水线实时进度</div>
-    <div id="log"></div>
+  <div id="main">
+    <div id="chatScroll"><div id="chatInner">
+      <div id="empty">
+        <h1>竞品调研助手</h1>
+        <p>输入任意产品名，我会并行检索官网信息、用户口碑、竞品对比，逐节生成调研报告。<br/>可以继续追问，我记得聊过的内容。</p>
+        <div>
+          <span class="chip" data-q="调研一下 Notion">调研一下 Notion</span>
+          <span class="chip" data-q="调研一下 元气森林">调研一下 元气森林</span>
+          <span class="chip" data-q="调研一下 Figma">调研一下 Figma</span>
+        </div>
+      </div>
+    </div></div>
+    <div id="inputBar"><div id="inputInner">
+      <textarea id="ta" rows="1" placeholder="输入产品名开始调研，或继续追问…"></textarea>
+      <button id="send" title="发送">↑</button>
+    </div></div>
   </div>
-  <div class="card" id="reportCard" style="display:none;"><div id="report"></div></div>
-</div>
+
+  <div id="drawer">
+    <button id="drawerClose">×</button>
+    <h2>设置</h2>
+    <label>Base URL（含版本段，如 .../v1）</label><input id="base_url" placeholder="https://api.openai.com/v1" />
+    <label>Model</label><input id="model" placeholder="gpt-5.5" />
+    <label>API Key（留空用共享额度）</label><input id="api_key" type="password" placeholder="sk-..." />
+    <label>Tavily Key（可选，搜索更稳）</label><input id="search_key" type="password" placeholder="tvly-..." />
+    <label>API 协议</label>
+    <select id="protocol">
+      <option value="responses">Responses</option>
+      <option value="chat_completions">Chat Completions</option>
+      <option value="completions">Legacy Completions</option>
+      <option value="anthropic">Anthropic Messages</option>
+    </select>
+    <label>搜索后端</label>
+    <select id="search_provider">
+      <option value="duckduckgo">DuckDuckGo（免 key）</option>
+      <option value="tavily">Tavily（需 key，更稳）</option>
+    </select>
+  </div>
 
 <script>
-function fill(v){ document.getElementById('product').value = v; document.getElementById('product').focus(); }
-function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-function bullets(arr){ return (arr && arr.length) ? '<ul>'+arr.map(i=>'<li>'+esc(String(i))+'</li>').join('')+'</ul>' : '<p>公开信息有限</p>'; }
+// ---------------- 状态 ----------------
+// sessions: [{id, title, messages:[{role, html}] }]  仅当前会话内存
+let sessions = [];
+let current = null;
+let busy = false;
 
-function renderReport(rep){
-  const uv = rep.user_voice || {};
-  const comps = (rep.competitors||[]).map(c=>'<li><b>'+esc(c.name||'?')+'</b>：'+esc(c.difference||'')+'</li>').join('');
-  const meta = rep._meta || {};
-  const degraded = meta.results_used===0 ? ' <span style="color:#b45309">（⚠ 本次未检索到网络结果，仅基于模型知识，可信度较低）</span>' : '';
-  return '<h1>'+esc(rep.product_name||'调研报告')+'</h1>'
-    + '<blockquote>'+esc(rep.one_line||'')+degraded+'</blockquote>'
-    + '<h2>定位</h2><p>'+esc(rep.positioning||'公开信息有限')+'</p>'
-    + '<h2>核心功能</h2>'+bullets(rep.core_features)
-    + '<h2>用户口碑 · 好评</h2>'+bullets(uv.praises)
-    + '<h2>用户口碑 · 吐槽</h2>'+bullets(uv.complaints)
-    + '<h2>竞品对比</h2>'+(comps?'<ul>'+comps+'</ul>':'<p>公开信息有限</p>')
-    + '<h2>风险提示</h2>'+bullets(rep.risk_notes)
-    + '<h2>结论</h2><p>'+esc(rep.conclusion||'')+'</p>'
-    + '<div class="meta">由 AI 基于 3 路并行检索 + 2 轮提炼生成 · 搜索后端：'+esc(meta.search_provider||'?')+' · 引用检索结果 '+(meta.results_used||0)+' 条 · 仅供参考</div>';
+const $ = id => document.getElementById(id);
+const chatInner = $('chatInner'), chatScroll = $('chatScroll'), ta = $('ta'), sendBtn = $('send');
+const EMPTY_HTML = $('empty').outerHTML;  // 先存空态模板，之后重建用
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function scrollBottom(){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+function newSession(){
+  current = { id: uid(), title: '新调研', messages: [] };
+  sessions.unshift(current);
+  renderSidebar(); renderChat();
+  ta.focus();
 }
 
-async function go(){
-  const product = document.getElementById('product').value.trim();
-  const btn = document.getElementById('btn');
-  const logWrap = document.getElementById('logWrap');
-  const logEl = document.getElementById('log');
-  const reportCard = document.getElementById('reportCard');
-  const reportEl = document.getElementById('report');
-  if(!product){ reportCard.style.display='block'; reportEl.innerHTML='<p class="err">请输入产品名。</p>'; return; }
+function renderSidebar(){
+  $('sessList').innerHTML = sessions.map(s =>
+    '<div class="sess'+(s.id===current.id?' active':'')+'" data-id="'+s.id+'">'+esc(s.title)+'</div>'
+  ).join('');
+  document.querySelectorAll('.sess').forEach(el => el.onclick = () => {
+    current = sessions.find(s=>s.id===el.dataset.id); renderSidebar(); renderChat();
+  });
+}
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 调研中…';
-  logWrap.style.display = 'block'; logEl.textContent = '正在启动流水线…';
-  reportCard.style.display = 'none';
+function renderChat(){
+  if(!current.messages.length){
+    chatInner.innerHTML = EMPTY_HTML;
+    bindChips();
+    return;
+  }
+  chatInner.innerHTML = current.messages.map(m =>
+    '<div class="msg '+m.role+'"><div class="avatar">'+(m.role==='user'?'🧑':'🤖')+'</div>'+
+    '<div class="body"><div class="who">'+(m.role==='user'?'你':'调研助手')+'</div>'+m.html+'</div></div>'
+  ).join('');
+  scrollBottom();
+}
+
+function bindChips(){
+  document.querySelectorAll('.chip').forEach(c => c.onclick = ()=>{ ta.value = c.dataset.q; ta.focus(); autoGrow(); });
+}
+
+// 追加一条消息（返回其 body 元素便于流式更新）
+function addMsg(role, html){
+  current.messages.push({role, html});
+  renderChat(); // 简化：重渲染；流式时直接操作最后一个 body
+  const bodies = chatInner.querySelectorAll('.msg .body');
+  return bodies[bodies.length-1];
+}
+function updateLast(role, html){
+  current.messages[current.messages.length-1].html = html;
+  const bodies = chatInner.querySelectorAll('.msg .body');
+  bodies[bodies.length-1].innerHTML = '<div class="who">'+(role==='user'?'你':'调研助手')+'</div>'+html;
+  scrollBottom();
+}
+
+// ---------------- 报告渲染 ----------------
+function secWrap(title, inner){ return '<div class="sec"><h3>'+esc(title)+'</h3>'+inner+'</div>'; }
+function asList(v){ if(Array.isArray(v)) return v; if(v&&typeof v==='object'){ const vals=Object.values(v); if(vals.length&&Array.isArray(vals[0])) return vals[0]; } return []; }
+function bullets(arr){ arr=asList(arr); return arr.length?'<ul>'+arr.map(i=>'<li>'+esc(typeof i==='object'?JSON.stringify(i):String(i))+'</li>').join('')+'</ul>':'<p>公开信息有限</p>'; }
+
+function renderSection(key, label, value){
+  if(key==='one_line') return '<div class="one-line">'+esc(value)+'</div>';
+  if(key==='positioning'||key==='conclusion') return secWrap(label,'<p>'+esc(value)+'</p>');
+  if(key==='core_features'||key==='risk_notes') return secWrap(label, bullets(value));
+  if(key==='user_voice'){
+    const uv = value||{};
+    return secWrap('用户口碑 · 好评', bullets(uv.praises)) + secWrap('用户口碑 · 吐槽', bullets(uv.complaints));
+  }
+  if(key==='competitors'){
+    const list = asList(value);
+    const comps = list.map(c=>'<li><b>'+esc((c&&c.name)||'?')+'</b>：'+esc((c&&c.difference)||'')+'</li>').join('');
+    return secWrap('竞品对比', comps?'<ul>'+comps+'</ul>':'<p>公开信息有限</p>');
+  }
+  return '';
+}
+
+// ---------------- 发送 & 流式 ----------------
+async function send(){
+  const text = ta.value.trim();
+  if(!text || busy) return;
+  busy = true; sendBtn.disabled = true;
+  ta.value=''; autoGrow();
+
+  // 判断追问：当前会话已有 AI 报告/回答
+  const isFollowup = current.messages.some(m=>m.role==='ai');
+
+  addMsg('user', esc(text));
+  if(current.title==='新调研'){ current.title = text.slice(0,20); renderSidebar(); }
+
+  // AI 消息占位
+  addMsg('ai', '<div class="typing-dots"><span></span><span></span><span></span></div>');
 
   const payload = {
-    product,
-    base_url: document.getElementById('base_url').value.trim(),
-    api_key: document.getElementById('api_key').value.trim(),
-    model: document.getElementById('model').value.trim(),
-    search_provider: document.getElementById('search_provider').value,
-    search_key: document.getElementById('search_key').value.trim(),
-    protocol: document.getElementById('protocol').value,
+    product: text,
+    followup: isFollowup,
+    messages: current.messages.slice(0,-1).map(m=>({role:m.role, content:stripHtml(m.html)})),
+    base_url: $('base_url').value.trim(),
+    api_key: $('api_key').value.trim(),
+    model: $('model').value.trim(),
+    search_provider: $('search_provider').value,
+    search_key: $('search_key').value.trim(),
+    protocol: $('protocol').value,
   };
 
   try{
-    const res = await fetch('/api/index', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    });
-    // 非 2xx：后端在流开始前就返回的 JSON 错误（缺 key/限流等）
+    const res = await fetch('/api/index', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     if(!res.ok){
       const data = await res.json().catch(()=>({}));
-      reportCard.style.display='block';
-      reportEl.innerHTML = '<p class="err">❌ '+esc(data.error||('HTTP '+res.status))+'</p>';
-      logEl.textContent = '';
-      return;
+      updateLast('ai', '<p class="err">❌ '+esc(data.error||('HTTP '+res.status))+'</p>');
+      busy=false; sendBtn.disabled=false; return;
     }
-    // 流式读取 NDJSON：逐行实时显示进度
-    logEl.textContent = '';
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
+    const reader = res.body.getReader(); const decoder = new TextDecoder();
+    let buf='', reportHtml='', progressHtml='', answerText='';
+    updateLast('ai','');
     while(true){
-      const {done, value} = await reader.read();
-      if(done) break;
-      buf += decoder.decode(value, {stream:true});
-      const lines = buf.split('\n');
-      buf = lines.pop();  // 最后半行留到下次
+      const {done,value} = await reader.read(); if(done) break;
+      buf += decoder.decode(value,{stream:true});
+      const lines = buf.split('\n'); buf = lines.pop();
       for(const line of lines){
         if(!line.trim()) continue;
-        let ev; try{ ev = JSON.parse(line); }catch{ continue; }
-        if(ev.type === 'log'){
-          logEl.textContent += ev.text + '\n';
-          logEl.scrollTop = logEl.scrollHeight;
-        } else if(ev.type === 'shared_key'){
-          document.getElementById('sharedBadge').style.display = 'inline-block';
-        } else if(ev.type === 'report'){
-          reportEl.innerHTML = renderReport(ev.report||{});
-          reportCard.style.display='block';
-        } else if(ev.type === 'error'){
-          reportCard.style.display='block';
-          reportEl.innerHTML = '<p class="err">❌ '+esc(ev.error||'未知错误')+'</p>';
+        let ev; try{ ev=JSON.parse(line);}catch{continue;}
+        if(ev.type==='log'){
+          progressHtml += esc(ev.text)+'\n';
+          updateLast('ai','<div class="progress">'+progressHtml+'</div>');
+        } else if(ev.type==='section'){
+          if(ev.key==='one_line') reportHtml = renderSection(ev.key,ev.label,ev.value) + reportHtml;
+          else reportHtml += renderSection(ev.key,ev.label,ev.value);
+          updateLast('ai','<div class="progress">'+progressHtml+'</div>'+reportHtml+'<span class="cursor"></span>');
+        } else if(ev.type==='report_done'){
+          let meta = ev.meta||{};
+          let metaHtml = '<div class="report-meta">并行检索 '+ (meta.results_used||0) +' 条 · '+esc(meta.search_provider||'')+' · 仅供参考'+(meta.results_used===0?'<div class="degraded">⚠ 未检索到网络结果，仅基于模型知识</div>':'')+'</div>';
+          updateLast('ai','<div class="progress">'+progressHtml+'</div>'+reportHtml+metaHtml);
+        } else if(ev.type==='chunk'){
+          answerText += ev.text;
+          updateLast('ai', esc(answerText)+'<span class="cursor"></span>');
+        } else if(ev.type==='done'){
+          updateLast('ai', esc(answerText));
+        } else if(ev.type==='shared_key'){
+          $('sharedBadge').style.display='inline-block';
+        } else if(ev.type==='error'){
+          updateLast('ai','<p class="err">❌ '+esc(ev.error)+'</p>');
         }
       }
     }
   }catch(e){
-    reportCard.style.display='block';
-    reportEl.innerHTML = '<p class="err">❌ 网络错误：'+esc(String(e))+'</p>';
+    updateLast('ai','<p class="err">❌ 网络错误：'+esc(String(e))+'</p>');
   }finally{
-    btn.disabled = false; btn.textContent = '开始调研';
+    busy=false; sendBtn.disabled=false; ta.focus();
   }
 }
+
+function stripHtml(html){ const d=document.createElement('div'); d.innerHTML=html; return d.textContent||''; }
+
+// ---------------- 输入框 ----------------
+function autoGrow(){ ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,160)+'px'; }
+ta.addEventListener('input', autoGrow);
+ta.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+sendBtn.onclick = send;
+
+// 设置抽屉
+$('settings').onclick = ()=> $('drawer').classList.add('open');
+$('drawerClose').onclick = ()=> $('drawer').classList.remove('open');
+$('newChat').onclick = newSession;
+
+// 初始化
+newSession();
 </script>
 </body>
 </html>
