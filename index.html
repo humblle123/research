@@ -33,6 +33,13 @@
   .msg.ai .avatar { background:#eee; }
   .msg .body { flex:1; min-width:0; font-size:15px; line-height:1.7; }
   .msg .who { font-size:12px; color:var(--muted); margin-bottom:3px; }
+  /* markdown 渲染 */
+  .msg .body h3.md-h, .msg .body h4.md-h { font-size:15px; margin:12px 0 4px; }
+  .msg .body p { margin:6px 0; }
+  .msg .body ul, .msg .body ol { margin:6px 0; padding-left:22px; }
+  .msg .body li { margin:2px 0; }
+  .msg .body code { background:#f0f0f0; border-radius:4px; padding:1px 5px; font-size:13px; font-family:ui-monospace,Menlo,monospace; }
+  .msg .body b { font-weight:600; }
 
   /* 报告气泡内的各节 */
   .sec h3 { font-size:14px; margin:14px 0 6px; color:var(--text); border-left:3px solid var(--brand); padding-left:8px; }
@@ -185,6 +192,42 @@ function updateLast(role, html){
   scrollBottom();
 }
 
+// 轻量 Markdown → HTML（标题/加粗/斜体/行内代码/无序有序列表/换行）
+function md(text){
+  let h = esc(text);
+  const lines = h.split('\n');
+  let out = '', inList = false, listType = null;
+  const inline = s => s
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  for(const raw of lines){
+    const line = raw;
+    const ul = line.match(/^\s*[-*]\s+(.*)/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
+    const head = line.match(/^(#{1,4})\s+(.*)/);
+    const closeList = () => { if(inList){ out += listType==='ul'?'</ul>':'</ol>'; inList=false; } };
+    if(head){
+      closeList();
+      const lvl = Math.min(head[1].length+1, 4);  // ## -> h3 起点，避免过大
+      out += '<h'+lvl+' class="md-h">'+inline(head[2])+'</h'+lvl+'>';
+    } else if(ul){
+      if(!inList || listType!=='ul'){ closeList(); out+='<ul>'; inList=true; listType='ul'; }
+      out += '<li>'+inline(ul[1])+'</li>';
+    } else if(ol){
+      if(!inList || listType!=='ol'){ closeList(); out+='<ol>'; inList=true; listType='ol'; }
+      out += '<li>'+inline(ol[1])+'</li>';
+    } else if(line.trim()===''){
+      closeList();
+    } else {
+      closeList();
+      out += '<p>'+inline(line)+'</p>';
+    }
+  }
+  if(inList) out += listType==='ul'?'</ul>':'</ol>';
+  return out;
+}
+
 // ---------------- 报告渲染 ----------------
 function secWrap(title, inner){ return '<div class="sec"><h3>'+esc(title)+'</h3>'+inner+'</div>'; }
 function asList(v){ if(Array.isArray(v)) return v; if(v&&typeof v==='object'){ const vals=Object.values(v); if(vals.length&&Array.isArray(vals[0])) return vals[0]; } return []; }
@@ -264,9 +307,9 @@ async function send(){
           updateLast('ai','<div class="progress">'+progressHtml+'</div>'+reportHtml+metaHtml);
         } else if(ev.type==='chunk'){
           answerText += ev.text;
-          updateLast('ai', esc(answerText)+'<span class="cursor"></span>');
+          updateLast('ai', md(answerText)+'<span class="cursor"></span>');
         } else if(ev.type==='done'){
-          updateLast('ai', esc(answerText));
+          updateLast('ai', md(answerText));
         } else if(ev.type==='shared_key'){
           $('sharedBadge').style.display='inline-block';
         } else if(ev.type==='error'){
