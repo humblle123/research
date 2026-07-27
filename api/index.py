@@ -214,6 +214,9 @@ class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._send(200, {})
 
+    def do_GET(self):
+        self._send(200, {"ok": True, "hint": "这是 API 端点，请用 POST 调用；首页在 /"})
+
     def do_POST(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
