@@ -68,20 +68,29 @@ def _get(url: str, headers: dict, timeout: int = 20) -> str:
 
 
 # ---------------- LLM ----------------
+def _extract_output_text(data: dict) -> str:
+    """从 /v1/responses 的返回里抠出文本。优先 output_text，其次遍历 output[].content[].text。"""
+    if data.get("output_text"):
+        return data["output_text"].strip()
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text" and c.get("text"):
+                    return c["text"].strip()
+    raise ValueError("responses 返回中没有文本内容: status=" + str(data.get("status")))
+
+
 def _chat(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+    """走 OpenAI Responses 协议（/v1/responses）。instructions 传 system，input 传 user。"""
     data = _post(
-        base_url.rstrip("/") + "/v1/chat/completions",
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        },
+        base_url.rstrip("/") + "/v1/responses",
+        {"model": model, "instructions": system, "input": user},
         {"Authorization": "Bearer " + api_key},
         timeout=90,
     )
-    return (data["choices"][0]["message"]["content"] or "").strip()
+    if data.get("error"):
+        raise RuntimeError(str(data["error"]))
+    return _extract_output_text(data)
 
 
 def _extract_json(text: str) -> dict:
